@@ -155,6 +155,12 @@ fn parse_query(raw: &str) -> ParsedQuery {
             continue;
         }
 
+        // Skip explicit AND operator (it's the default behavior)
+        if term == "AND" && !negated {
+            i += 1;
+            continue;
+        }
+
         // Check if next token is OR
         let next_is_or = i + 1 < tokens.len() && tokens[i + 1].0 == "OR" && !tokens[i + 1].1;
 
@@ -2711,6 +2717,14 @@ mod tests {
         let q = parse_query("-\"bad phrase\"");
         assert!(q.and_terms.is_empty());
         assert_eq!(q.not_terms, vec!["bad phrase"]);
+    }
+
+    #[test]
+    fn test_parse_query_explicit_and() {
+        let q = parse_query("Altera AND outages");
+        assert_eq!(q.and_terms, vec!["altera", "outages"]);
+        assert!(q.or_groups.is_empty());
+        assert_eq!(q.highlight_terms, vec!["altera", "outages"]);
     }
 
     #[test]
