@@ -72,7 +72,16 @@ export const SessionList: React.FC<SessionListProps> = ({
   const debouncedQuery = useDebounce(searchQuery, 300);
   const searchRequestId = useRef(0);
 
-  // Invalidate immediately when raw query or projectId changes
+  // Hard reset when project context changes
+  useEffect(() => {
+    searchRequestId.current += 1;
+    setSearchResults(null);
+    setSearchError(null);
+    setSearching(false);
+    setCurrentPage(1);
+  }, [projectId]);
+
+  // Invalidate when query is cleared
   useEffect(() => {
     searchRequestId.current += 1;
     if (!searchQuery.trim()) {
@@ -80,7 +89,7 @@ export const SessionList: React.FC<SessionListProps> = ({
       setSearchError(null);
       setSearching(false);
     }
-  }, [searchQuery, projectId]);
+  }, [searchQuery]);
 
   // Perform search when debounced query changes
   useEffect(() => {
@@ -124,10 +133,10 @@ export const SessionList: React.FC<SessionListProps> = ({
   const endIndex = startIndex + ITEMS_PER_PAGE;
   const currentSessions = displayedSessions.slice(startIndex, endIndex);
 
-  // Reset to page 1 if sessions change
+  // Reset to page 1 if sessions dataset changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [sessions.length]);
+  }, [sessions, projectId]);
 
   const clearSearch = useCallback(() => {
     setSearchQuery("");
@@ -151,6 +160,7 @@ export const SessionList: React.FC<SessionListProps> = ({
         {searchQuery && (
           <button
             onClick={clearSearch}
+            aria-label="Clear search"
             className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
           >
             <X className="h-4 w-4" />

@@ -131,6 +131,7 @@ async fn get_sessions(
 
 #[derive(Deserialize)]
 struct SearchQuery {
+    #[serde(default)]
     q: String,
 }
 
@@ -139,6 +140,9 @@ async fn search_sessions(
     Path(project_id): Path<String>,
     Query(params): Query<SearchQuery>,
 ) -> Json<ApiResponse<Vec<commands::claude::Session>>> {
+    if params.q.is_empty() {
+        return Json(ApiResponse::error("Missing query parameter 'q'".to_string()));
+    }
     match commands::claude::search_project_sessions(project_id, params.q).await {
         Ok(sessions) => Json(ApiResponse::success(sessions)),
         Err(e) => Json(ApiResponse::error(e.to_string())),
