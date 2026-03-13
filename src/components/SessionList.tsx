@@ -79,6 +79,7 @@ export const SessionList: React.FC<SessionListProps> = ({
   const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const debouncedQuery = useDebounce(searchQuery, 300);
+  const normalizedQuery = debouncedQuery.trim();
   const searchRequestId = useRef(0);
   const skipNextSearch = useRef(false);
 
@@ -112,7 +113,7 @@ export const SessionList: React.FC<SessionListProps> = ({
       skipNextSearch.current = false;
       return;
     }
-    if (debouncedQuery.trim().length < 2) {
+    if (normalizedQuery.length < 2) {
       setSearchResults(null);
       setSearchError(null);
       setSearching(false);
@@ -123,7 +124,7 @@ export const SessionList: React.FC<SessionListProps> = ({
     setSearching(true);
     setSearchError(null);
 
-    api.searchProjectSessions(projectId, debouncedQuery.trim())
+    api.searchProjectSessions(projectId, normalizedQuery)
       .then((results) => {
         if (searchRequestId.current === requestId) {
           setSearchResults(results);
@@ -147,7 +148,7 @@ export const SessionList: React.FC<SessionListProps> = ({
 
   const isSearchActive =
     searchQuery.trim().length >= 2 &&
-    (debouncedQuery.trim().length >= 2 || searching || searchResults !== null);
+    (normalizedQuery.length >= 2 || searching || searchResults !== null);
   const displayedSessions: (Session | SessionSearchResult)[] = isSearchActive ? (searchResults ?? []) : sessions;
 
   // Calculate pagination
@@ -365,7 +366,7 @@ export const SessionList: React.FC<SessionListProps> = ({
                                   key={i}
                                   className="text-xs text-muted-foreground bg-muted/50 rounded p-2 leading-relaxed"
                                 >
-                                  <HighlightedText text={snippet} query={debouncedQuery} />
+                                  <HighlightedText text={snippet} query={normalizedQuery} />
                                 </div>
                               ))}
                             </div>
