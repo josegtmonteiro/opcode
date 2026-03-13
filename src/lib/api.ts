@@ -56,6 +56,8 @@ export interface Session {
 export interface SessionSearchResult extends Session {
   /** Matching text snippets from the session */
   snippets: string[];
+  /** Positive search terms for frontend highlighting */
+  highlight_terms: string[];
 }
 
 /**

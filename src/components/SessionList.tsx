@@ -25,10 +25,13 @@ interface SessionListProps {
 const ITEMS_PER_PAGE = 12;
 
 /** Highlights all occurrences of `query` in `text` (case-insensitive, Unicode-safe) */
-function HighlightedText({ text, query }: { text: string; query: string }) {
-  if (!query.trim()) return <>{text}</>;
-  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const re = new RegExp(escaped, 'gi');
+function HighlightedText({ text, terms }: { text: string; terms: string[] }) {
+  if (!terms.length) return <>{text}</>;
+  const escaped = terms
+    .filter(t => t.trim())
+    .map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  if (!escaped.length) return <>{text}</>;
+  const re = new RegExp(escaped.join('|'), 'gi');
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -366,7 +369,7 @@ export const SessionList: React.FC<SessionListProps> = ({
                                   key={i}
                                   className="text-xs text-muted-foreground bg-muted/50 rounded p-2 leading-relaxed"
                                 >
-                                  <HighlightedText text={snippet} query={normalizedQuery} />
+                                  <HighlightedText text={snippet} terms={result.highlight_terms ?? [normalizedQuery]} />
                                 </div>
                               ))}
                             </div>

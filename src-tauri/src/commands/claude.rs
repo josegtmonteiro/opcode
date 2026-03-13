@@ -64,6 +64,151 @@ pub struct SessionSearchResult {
     pub session: Session,
     /// Matching text snippets from the session
     pub snippets: Vec<String>,
+    /// Positive search terms for frontend highlighting
+    pub highlight_terms: Vec<String>,
+}
+
+/// Parsed search query with AND, OR, NOT operators
+#[derive(Debug, Clone)]
+struct ParsedQuery {
+    /// Terms that must ALL be present (AND)
+    and_terms: Vec<String>,
+    /// Groups where at least one term must match
+    or_groups: Vec<Vec<String>>,
+    /// Terms that must NOT be present
+    not_terms: Vec<String>,
+    /// All positive terms for snippet extraction and highlighting
+    highlight_terms: Vec<String>,
+}
+
+/// Parses a search query supporting AND (default), OR, NOT (-), and "exact phrase".
+///
+/// Examples:
+///   `alpha beta` → AND: [alpha, beta]
+///   `alpha OR beta` → OR: [[alpha, beta]]
+///   `-test` → NOT: [test]
+///   `"exact phrase"` → AND: ["exact phrase"]
+///   `"fix bug" refactor OR cleanup -test` → AND: [fix bug], OR: [[refactor, cleanup]], NOT: [test]
+fn parse_query(raw: &str) -> ParsedQuery {
+    // Step 1: Tokenize respecting quotes
+    let mut tokens: Vec<(String, bool)> = Vec::new(); // (term, is_negated)
+    let mut chars = raw.chars().peekable();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut is_negated = false;
+
+    while let Some(&ch) = chars.peek() {
+        if in_quotes {
+            chars.next();
+            if ch == '"' {
+                in_quotes = false;
+                if !current.is_empty() {
+                    tokens.push((current.clone(), is_negated));
+                    current.clear();
+                    is_negated = false;
+                }
+            } else {
+                current.push(ch);
+            }
+        } else if ch == '"' {
+            chars.next();
+            if !current.is_empty() {
+                tokens.push((current.clone(), is_negated));
+                current.clear();
+                is_negated = false;
+            }
+            in_quotes = true;
+        } else if ch.is_whitespace() {
+            chars.next();
+            if !current.is_empty() {
+                tokens.push((current.clone(), is_negated));
+                current.clear();
+                is_negated = false;
+            }
+        } else if ch == '-' && current.is_empty() {
+            chars.next();
+            is_negated = true;
+        } else {
+            chars.next();
+            current.push(ch);
+        }
+    }
+    // Handle unclosed quotes or trailing token
+    if !current.is_empty() {
+        tokens.push((current, is_negated));
+    }
+
+    // Step 2: Build ParsedQuery by processing OR groups
+    let mut and_terms: Vec<String> = Vec::new();
+    let mut or_groups: Vec<Vec<String>> = Vec::new();
+    let mut not_terms: Vec<String> = Vec::new();
+    let mut pending_or_group: Vec<String> = Vec::new();
+
+    let mut i = 0;
+    while i < tokens.len() {
+        let (ref term, negated) = tokens[i];
+        let term_lower = term.to_lowercase();
+
+        if negated {
+            not_terms.push(term_lower);
+            i += 1;
+            continue;
+        }
+
+        // Check if next token is OR
+        let next_is_or = i + 1 < tokens.len() && tokens[i + 1].0 == "OR" && !tokens[i + 1].1;
+
+        if term == "OR" && !negated {
+            // OR without left context — treat as literal
+            if pending_or_group.is_empty() {
+                and_terms.push(term_lower);
+            }
+            // If pending_or_group is non-empty, this OR was already handled
+            i += 1;
+            continue;
+        }
+
+        if !pending_or_group.is_empty() {
+            // We're continuing an OR chain
+            pending_or_group.push(term_lower);
+            if !next_is_or {
+                // End of OR chain
+                or_groups.push(pending_or_group.clone());
+                pending_or_group.clear();
+            } else {
+                i += 2; // skip term + OR
+                continue;
+            }
+        } else if next_is_or {
+            // Start a new OR chain
+            pending_or_group.push(term_lower);
+            i += 2; // skip term + OR
+            continue;
+        } else {
+            and_terms.push(term_lower);
+        }
+
+        i += 1;
+    }
+
+    // Flush any remaining OR group
+    if !pending_or_group.is_empty() {
+        or_groups.push(pending_or_group);
+    }
+
+    // Build highlight_terms from all positive terms
+    let mut highlight_terms: Vec<String> = Vec::new();
+    highlight_terms.extend(and_terms.iter().cloned());
+    for group in &or_groups {
+        highlight_terms.extend(group.iter().cloned());
+    }
+
+    ParsedQuery {
+        and_terms,
+        or_groups,
+        not_terms,
+        highlight_terms,
+    }
 }
 
 /// Represents a message entry in the JSONL file
@@ -564,10 +709,62 @@ pub async fn get_project_sessions(project_id: String) -> Result<Vec<Session>, St
     Ok(sessions)
 }
 
-/// Checks if any message in a JSONL session file contains the query (case-insensitive)
-/// Extracts matching text snippets from a session JSONL file.
-/// Returns up to MAX_SNIPPETS snippets containing the query, trimmed to context around the match.
-fn extract_matching_snippets(jsonl_path: &PathBuf, query_lower: &str) -> Vec<String> {
+/// Checks if a session matches the parsed query (AND, OR, NOT logic).
+/// Reads all message content and checks term presence.
+fn session_matches(jsonl_path: &PathBuf, query: &ParsedQuery) -> bool {
+    let file = match fs::File::open(jsonl_path) {
+        Ok(file) => file,
+        Err(_) => return false,
+    };
+
+    let reader = BufReader::new(file);
+    let mut all_content = String::new();
+
+    for line in reader.lines() {
+        if let Ok(line) = line {
+            if let Ok(entry) = serde_json::from_str::<JsonlEntry>(&line) {
+                if let Some(message) = entry.message {
+                    if let Some(content) = message.content {
+                        all_content.push(' ');
+                        all_content.push_str(&content);
+                    }
+                }
+            }
+        }
+    }
+
+    let content_lower = all_content.to_lowercase();
+
+    // Check NOT terms first (early exit)
+    for term in &query.not_terms {
+        if content_lower.contains(term.as_str()) {
+            return false;
+        }
+    }
+
+    // Check AND terms — all must be present
+    for term in &query.and_terms {
+        if !content_lower.contains(term.as_str()) {
+            return false;
+        }
+    }
+
+    // Check OR groups — at least one term per group
+    for group in &query.or_groups {
+        if !group
+            .iter()
+            .any(|term| content_lower.contains(term.as_str()))
+        {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Extracts matching text snippets for multiple search terms.
+/// Returns up to MAX_SNIPPETS snippets with context around each match.
+fn extract_snippets_for_terms(jsonl_path: &PathBuf, terms: &[String]) -> Vec<String> {
     const MAX_SNIPPETS: usize = 20;
     const CONTEXT_CHARS: usize = 100;
 
@@ -576,8 +773,15 @@ fn extract_matching_snippets(jsonl_path: &PathBuf, query_lower: &str) -> Vec<Str
         Err(_) => return Vec::new(),
     };
 
+    if terms.is_empty() {
+        return Vec::new();
+    }
+
     let reader = BufReader::new(file);
     let mut snippets = Vec::new();
+
+    // Pre-compute query chars for each term
+    let term_chars: Vec<Vec<char>> = terms.iter().map(|t| t.chars().collect()).collect();
 
     for line in reader.lines() {
         if snippets.len() >= MAX_SNIPPETS {
@@ -587,46 +791,48 @@ fn extract_matching_snippets(jsonl_path: &PathBuf, query_lower: &str) -> Vec<Str
             if let Ok(entry) = serde_json::from_str::<JsonlEntry>(&line) {
                 if let Some(message) = entry.message {
                     if let Some(content) = message.content {
-                        // Find matches by comparing chars case-insensitively
-                        // to preserve original casing in snippets
                         let chars_orig: Vec<(usize, char)> = content.char_indices().collect();
-                        let query_chars: Vec<char> = query_lower.chars().collect();
-                        let mut ci = 0;
-                        while ci + query_chars.len() <= chars_orig.len() {
+
+                        // Search for each term in this message
+                        for query_chars in &term_chars {
                             if snippets.len() >= MAX_SNIPPETS {
                                 break;
                             }
-                            let matched = chars_orig[ci..ci + query_chars.len()]
-                                .iter()
-                                .zip(&query_chars)
-                                .all(|((_, c), q)| c.to_lowercase().eq(q.to_lowercase()));
-                            if matched {
-                                // Context window in chars
-                                let ctx_start_ci = ci.saturating_sub(CONTEXT_CHARS);
-                                let ctx_end_ci =
-                                    (ci + query_chars.len() + CONTEXT_CHARS).min(chars_orig.len());
-                                let start = chars_orig[ctx_start_ci].0;
-                                let end = if ctx_end_ci < chars_orig.len() {
-                                    chars_orig[ctx_end_ci].0
+                            let mut ci = 0;
+                            while ci + query_chars.len() <= chars_orig.len() {
+                                if snippets.len() >= MAX_SNIPPETS {
+                                    break;
+                                }
+                                let matched = chars_orig[ci..ci + query_chars.len()]
+                                    .iter()
+                                    .zip(query_chars)
+                                    .all(|((_, c), q)| c.to_lowercase().eq(q.to_lowercase()));
+                                if matched {
+                                    let ctx_start_ci = ci.saturating_sub(CONTEXT_CHARS);
+                                    let ctx_end_ci = (ci + query_chars.len() + CONTEXT_CHARS)
+                                        .min(chars_orig.len());
+                                    let start = chars_orig[ctx_start_ci].0;
+                                    let end = if ctx_end_ci < chars_orig.len() {
+                                        chars_orig[ctx_end_ci].0
+                                    } else {
+                                        content.len()
+                                    };
+                                    let raw = &content[start..end];
+                                    let mut snippet =
+                                        raw.split_whitespace().collect::<Vec<_>>().join(" ");
+                                    if start > 0 {
+                                        snippet = format!("...{}", snippet);
+                                    }
+                                    if end < content.len() {
+                                        snippet = format!("{}...", snippet);
+                                    }
+                                    if !snippet.is_empty() {
+                                        snippets.push(snippet);
+                                    }
+                                    ci += query_chars.len();
                                 } else {
-                                    content.len()
-                                };
-                                let raw = &content[start..end];
-                                let mut snippet =
-                                    raw.split_whitespace().collect::<Vec<_>>().join(" ");
-                                if start > 0 {
-                                    snippet = format!("...{}", snippet);
+                                    ci += 1;
                                 }
-                                if end < content.len() {
-                                    snippet = format!("{}...", snippet);
-                                }
-                                if !snippet.is_empty() {
-                                    snippets.push(snippet);
-                                }
-                                // Advance past the match
-                                ci += query_chars.len();
-                            } else {
-                                ci += 1;
                             }
                         }
                     }
@@ -662,7 +868,11 @@ pub async fn search_project_sessions(
         return Err("Invalid project id".to_string());
     }
 
-    let query_lower = query.to_lowercase();
+    let parsed = parse_query(&query);
+    if parsed.and_terms.is_empty() && parsed.or_groups.is_empty() && parsed.not_terms.is_empty() {
+        return Ok(Vec::new());
+    }
+
     let claude_dir = get_claude_dir().map_err(|e| e.to_string())?;
     let projects_dir = claude_dir.join("projects");
     let project_dir = projects_dir.join(&project_id);
@@ -718,10 +928,10 @@ pub async fn search_project_sessions(
 
             if path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
                 if let Some(session_id) = path.file_stem().and_then(|s| s.to_str()) {
-                    let snippets = extract_matching_snippets(&path, &query_lower);
-                    if snippets.is_empty() {
+                    if !session_matches(&path, &parsed) {
                         continue;
                     }
+                    let snippets = extract_snippets_for_terms(&path, &parsed.highlight_terms);
 
                     let metadata = match fs::metadata(&path) {
                         Ok(m) => m,
@@ -761,6 +971,7 @@ pub async fn search_project_sessions(
                             message_timestamp,
                         },
                         snippets,
+                        highlight_terms: parsed.highlight_terms.clone(),
                     });
                 }
             }
@@ -2429,6 +2640,83 @@ mod tests {
         let mut file = fs::File::create(file_path)?;
         file.write_all(content.as_bytes())?;
         Ok(())
+    }
+
+    #[test]
+    fn test_parse_query_single_term() {
+        let q = parse_query("hello");
+        assert_eq!(q.and_terms, vec!["hello"]);
+        assert!(q.or_groups.is_empty());
+        assert!(q.not_terms.is_empty());
+        assert_eq!(q.highlight_terms, vec!["hello"]);
+    }
+
+    #[test]
+    fn test_parse_query_and_terms() {
+        let q = parse_query("alpha beta gamma");
+        assert_eq!(q.and_terms, vec!["alpha", "beta", "gamma"]);
+        assert!(q.or_groups.is_empty());
+        assert!(q.not_terms.is_empty());
+    }
+
+    #[test]
+    fn test_parse_query_or_group() {
+        let q = parse_query("alpha OR beta");
+        assert!(q.and_terms.is_empty());
+        assert_eq!(q.or_groups, vec![vec!["alpha", "beta"]]);
+        assert!(q.not_terms.is_empty());
+        assert_eq!(q.highlight_terms, vec!["alpha", "beta"]);
+    }
+
+    #[test]
+    fn test_parse_query_chained_or() {
+        let q = parse_query("alpha OR beta OR gamma");
+        assert!(q.and_terms.is_empty());
+        assert_eq!(q.or_groups, vec![vec!["alpha", "beta", "gamma"]]);
+    }
+
+    #[test]
+    fn test_parse_query_not_term() {
+        let q = parse_query("alpha -beta");
+        assert_eq!(q.and_terms, vec!["alpha"]);
+        assert_eq!(q.not_terms, vec!["beta"]);
+        assert_eq!(q.highlight_terms, vec!["alpha"]);
+    }
+
+    #[test]
+    fn test_parse_query_quoted_phrase() {
+        let q = parse_query("\"hello world\" test");
+        assert_eq!(q.and_terms, vec!["hello world", "test"]);
+        assert!(q.or_groups.is_empty());
+    }
+
+    #[test]
+    fn test_parse_query_mixed() {
+        let q = parse_query("\"fix bug\" refactor OR cleanup -test");
+        assert_eq!(q.and_terms, vec!["fix bug"]);
+        assert_eq!(q.or_groups, vec![vec!["refactor", "cleanup"]]);
+        assert_eq!(q.not_terms, vec!["test"]);
+        assert_eq!(q.highlight_terms, vec!["fix bug", "refactor", "cleanup"]);
+    }
+
+    #[test]
+    fn test_parse_query_standalone_or() {
+        let q = parse_query("OR");
+        assert_eq!(q.and_terms, vec!["or"]);
+        assert!(q.or_groups.is_empty());
+    }
+
+    #[test]
+    fn test_parse_query_negated_phrase() {
+        let q = parse_query("-\"bad phrase\"");
+        assert!(q.and_terms.is_empty());
+        assert_eq!(q.not_terms, vec!["bad phrase"]);
+    }
+
+    #[test]
+    fn test_parse_query_case_preservation() {
+        let q = parse_query("Hello WORLD");
+        assert_eq!(q.and_terms, vec!["hello", "world"]);
     }
 
     #[test]
