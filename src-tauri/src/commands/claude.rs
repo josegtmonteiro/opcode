@@ -602,17 +602,25 @@ pub async fn search_project_sessions(
     );
 
     // Validate project_id to prevent path traversal
-    if project_id.is_empty()
-        || project_id.contains('/')
-        || project_id.contains('\\')
-        || project_id.contains("..")
-    {
+    if project_id.is_empty() || project_id.contains('/') || project_id.contains('\\') {
         return Err("Invalid project id".to_string());
     }
 
     let query_lower = query.to_lowercase();
     let claude_dir = get_claude_dir().map_err(|e| e.to_string())?;
-    let project_dir = claude_dir.join("projects").join(&project_id);
+    let projects_dir = claude_dir.join("projects");
+    let project_dir = projects_dir.join(&project_id);
+
+    // Verify resolved path stays under the projects root
+    let canonical_projects_dir = projects_dir
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    let canonical_project_dir = project_dir
+        .canonicalize()
+        .map_err(|_| format!("Project directory not found: {}", project_id))?;
+    if !canonical_project_dir.starts_with(&canonical_projects_dir) {
+        return Err("Invalid project id".to_string());
+    }
     let todos_dir = claude_dir.join("todos");
 
     if !project_dir.exists() {
@@ -620,6 +628,8 @@ pub async fn search_project_sessions(
     }
 
     tokio::task::spawn_blocking(move || {
+        const MAX_RESULTS: usize = 100;
+
         let project_path = match get_project_path_from_sessions(&project_dir) {
             Ok(path) => path,
             Err(_) => decode_project_path(&project_id),
@@ -631,6 +641,10 @@ pub async fn search_project_sessions(
             .map_err(|e| format!("Failed to read project directory: {}", e))?;
 
         for entry in entries {
+            if sessions.len() >= MAX_RESULTS {
+                break;
+            }
+
             let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
             let path = entry.path();
 

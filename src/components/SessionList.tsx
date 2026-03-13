@@ -71,9 +71,11 @@ export const SessionList: React.FC<SessionListProps> = ({
   const [searching, setSearching] = useState(false);
   const debouncedQuery = useDebounce(searchQuery, 300);
   const searchRequestId = useRef(0);
+  const skipNextSearch = useRef(false);
 
   // Hard reset when project context changes
   useEffect(() => {
+    skipNextSearch.current = true;
     searchRequestId.current += 1;
     setSearchQuery("");
     setSearchResults(null);
@@ -95,6 +97,10 @@ export const SessionList: React.FC<SessionListProps> = ({
 
   // Perform search when debounced query changes
   useEffect(() => {
+    if (skipNextSearch.current) {
+      skipNextSearch.current = false;
+      return;
+    }
     if (!debouncedQuery.trim()) {
       setSearchResults(null);
       setSearchError(null);
