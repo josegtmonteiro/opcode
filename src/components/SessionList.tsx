@@ -75,6 +75,7 @@ export const SessionList: React.FC<SessionListProps> = ({
   // Hard reset when project context changes
   useEffect(() => {
     searchRequestId.current += 1;
+    setSearchQuery("");
     setSearchResults(null);
     setSearchError(null);
     setSearching(false);
@@ -88,6 +89,7 @@ export const SessionList: React.FC<SessionListProps> = ({
       setSearchResults(null);
       setSearchError(null);
       setSearching(false);
+      setCurrentPage(1);
     }
   }, [searchQuery]);
 
@@ -155,6 +157,7 @@ export const SessionList: React.FC<SessionListProps> = ({
           placeholder="Search all sessions..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
+          aria-label="Search sessions"
           className="pl-9 pr-9 h-9"
         />
         {searchQuery && (

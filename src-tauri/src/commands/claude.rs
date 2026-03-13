@@ -602,20 +602,17 @@ pub async fn search_project_sessions(
     );
 
     // Validate project_id to prevent path traversal
-    let project_component = std::path::Path::new(&project_id);
-    if project_component.is_absolute()
-        || project_component.components().count() != 1
-        || !matches!(
-            project_component.components().next(),
-            Some(std::path::Component::Normal(_))
-        )
+    if project_id.is_empty()
+        || project_id.contains('/')
+        || project_id.contains('\\')
+        || project_id.contains("..")
     {
         return Err("Invalid project id".to_string());
     }
 
     let query_lower = query.to_lowercase();
     let claude_dir = get_claude_dir().map_err(|e| e.to_string())?;
-    let project_dir = claude_dir.join("projects").join(project_component);
+    let project_dir = claude_dir.join("projects").join(&project_id);
     let todos_dir = claude_dir.join("todos");
 
     if !project_dir.exists() {
