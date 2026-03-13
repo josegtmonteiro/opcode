@@ -601,8 +601,7 @@ pub async fn search_project_sessions(
         query.len()
     );
 
-    // Validate project_id to prevent path traversal
-    if project_id.is_empty() || project_id.contains('/') || project_id.contains('\\') {
+    if project_id.is_empty() {
         return Err("Invalid project id".to_string());
     }
 
@@ -641,10 +640,6 @@ pub async fn search_project_sessions(
             .map_err(|e| format!("Failed to read project directory: {}", e))?;
 
         for entry in entries {
-            if sessions.len() >= MAX_RESULTS {
-                break;
-            }
-
             let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
             let path = entry.path();
 
@@ -690,6 +685,7 @@ pub async fn search_project_sessions(
         }
 
         sessions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        sessions.truncate(MAX_RESULTS);
 
         log::info!(
             "Found {} matching sessions for project {}",
