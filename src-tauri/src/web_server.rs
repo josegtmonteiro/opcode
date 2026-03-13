@@ -140,10 +140,11 @@ async fn search_sessions(
     Path(project_id): Path<String>,
     Query(params): Query<SearchQuery>,
 ) -> Json<ApiResponse<Vec<commands::claude::Session>>> {
-    if params.query.is_empty() {
-        return Json(ApiResponse::error("Missing 'query' parameter".to_string()));
+    let query = params.query.trim().to_string();
+    if query.is_empty() {
+        return Json(ApiResponse::success(Vec::new()));
     }
-    match commands::claude::search_project_sessions(project_id, params.query).await {
+    match commands::claude::search_project_sessions(project_id, query).await {
         Ok(sessions) => Json(ApiResponse::success(sessions)),
         Err(e) => Json(ApiResponse::error(e.to_string())),
     }

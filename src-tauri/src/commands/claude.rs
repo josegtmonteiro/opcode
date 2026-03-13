@@ -620,11 +620,9 @@ pub async fn search_project_sessions(
     if !canonical_project_dir.starts_with(&canonical_projects_dir) {
         return Err("Invalid project id".to_string());
     }
+    // Use canonical path for all subsequent operations to prevent TOCTOU
+    let project_dir = canonical_project_dir;
     let todos_dir = claude_dir.join("todos");
-
-    if !project_dir.exists() {
-        return Err(format!("Project directory not found: {}", project_id));
-    }
 
     tokio::task::spawn_blocking(move || {
         const MAX_RESULTS: usize = 100;

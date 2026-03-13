@@ -136,7 +136,7 @@ export const SessionList: React.FC<SessionListProps> = ({
   const displayedSessions = searchResults !== null ? searchResults : sessions;
 
   // Calculate pagination
-  const totalPages = Math.ceil(displayedSessions.length / ITEMS_PER_PAGE);
+  const totalPages = Math.max(1, Math.ceil(displayedSessions.length / ITEMS_PER_PAGE));
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   const endIndex = startIndex + ITEMS_PER_PAGE;
   const currentSessions = displayedSessions.slice(startIndex, endIndex);
