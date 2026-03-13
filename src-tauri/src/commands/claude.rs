@@ -648,7 +648,7 @@ pub async fn search_project_sessions(
     query: String,
 ) -> Result<Vec<SessionSearchResult>, String> {
     let query = query.trim().to_string();
-    if query.is_empty() {
+    if query.is_empty() || query.len() < 2 {
         return Ok(Vec::new());
     }
     if query.len() > 256 {
