@@ -150,6 +150,20 @@ async fn search_sessions(
     }
 }
 
+/// API endpoint to search sessions across all projects
+async fn search_all_sessions_handler(
+    Query(params): Query<SearchQuery>,
+) -> Json<ApiResponse<Vec<commands::claude::SessionSearchResult>>> {
+    let query = params.query.trim().to_string();
+    if query.is_empty() {
+        return Json(ApiResponse::success(Vec::new()));
+    }
+    match commands::claude::search_all_sessions(query).await {
+        Ok(sessions) => Json(ApiResponse::success(sessions)),
+        Err(e) => Json(ApiResponse::error(e.to_string())),
+    }
+}
+
 /// Simple agents endpoint - return empty for now (needs DB state)
 async fn get_agents() -> Json<ApiResponse<Vec<serde_json::Value>>> {
     Json(ApiResponse::success(vec![]))
@@ -810,6 +824,10 @@ pub async fn create_web_server(port: u16) -> Result<(), Box<dyn std::error::Erro
         .route(
             "/api/projects/{project_id}/sessions/search",
             get(search_sessions),
+        )
+        .route(
+            "/api/sessions/search/global",
+            get(search_all_sessions_handler),
         )
         .route("/api/agents", get(get_agents))
         .route("/api/usage", get(get_usage))

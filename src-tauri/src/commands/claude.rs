@@ -997,6 +997,153 @@ pub async fn search_project_sessions(
     .map_err(|e| format!("Search task failed: {}", e))?
 }
 
+/// Searches through all projects' session JSONL files for messages containing the query
+#[tauri::command]
+pub async fn search_all_sessions(query: String) -> Result<Vec<SessionSearchResult>, String> {
+    let query = query.trim().to_string();
+    if query.is_empty() || query.len() < 2 {
+        return Ok(Vec::new());
+    }
+    if query.len() > 256 {
+        return Err("Query is too long".to_string());
+    }
+
+    log::info!(
+        "Searching all sessions across all projects (query length: {})",
+        query.len()
+    );
+
+    let parsed = parse_query(&query);
+    if parsed.and_terms.is_empty() && parsed.or_groups.is_empty() && parsed.not_terms.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let claude_dir = get_claude_dir().map_err(|e| e.to_string())?;
+    let projects_dir = claude_dir.join("projects");
+
+    if !projects_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let todos_dir = claude_dir.join("todos");
+
+    tokio::task::spawn_blocking(move || {
+        const MAX_RESULTS: usize = 100;
+
+        let mut results: Vec<SessionSearchResult> = Vec::new();
+
+        let project_entries = fs::read_dir(&projects_dir)
+            .map_err(|e| format!("Failed to read projects directory: {}", e))?;
+
+        for project_entry in project_entries {
+            if results.len() >= MAX_RESULTS {
+                break;
+            }
+
+            let project_entry = match project_entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            let project_dir = project_entry.path();
+            if !project_dir.is_dir() {
+                continue;
+            }
+
+            let project_id = match project_dir.file_name().and_then(|n| n.to_str()) {
+                Some(name) => name.to_string(),
+                None => continue,
+            };
+
+            let project_path = match get_project_path_from_sessions(&project_dir) {
+                Ok(path) => path,
+                Err(_) => decode_project_path(&project_id),
+            };
+
+            let session_entries = match fs::read_dir(&project_dir) {
+                Ok(entries) => entries,
+                Err(_) => continue,
+            };
+
+            for entry in session_entries {
+                if results.len() >= MAX_RESULTS {
+                    break;
+                }
+
+                let entry = match entry {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                let file_type = match entry.file_type() {
+                    Ok(ft) => ft,
+                    Err(_) => continue,
+                };
+                if file_type.is_symlink() || !file_type.is_file() {
+                    continue;
+                }
+                let path = entry.path();
+
+                if path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
+                    if let Some(session_id) = path.file_stem().and_then(|s| s.to_str()) {
+                        if !session_matches(&path, &parsed) {
+                            continue;
+                        }
+                        let snippets = extract_snippets_for_terms(&path, &parsed.highlight_terms);
+
+                        let metadata = match fs::metadata(&path) {
+                            Ok(m) => m,
+                            Err(_) => continue,
+                        };
+
+                        let created_at = metadata
+                            .created()
+                            .or_else(|_| metadata.modified())
+                            .unwrap_or(SystemTime::UNIX_EPOCH)
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+
+                        let (first_message, message_timestamp) = extract_first_user_message(&path);
+
+                        let todo_path = todos_dir.join(format!("{}.json", session_id));
+                        let todo_data = if todo_path.exists() {
+                            fs::read_to_string(&todo_path)
+                                .ok()
+                                .and_then(|content| serde_json::from_str(&content).ok())
+                        } else {
+                            None
+                        };
+
+                        results.push(SessionSearchResult {
+                            session: Session {
+                                id: session_id.to_string(),
+                                project_id: project_id.clone(),
+                                project_path: project_path.clone(),
+                                todo_data,
+                                created_at,
+                                first_message,
+                                message_timestamp,
+                            },
+                            snippets,
+                            highlight_terms: parsed.highlight_terms.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        results.sort_by(|a, b| b.session.created_at.cmp(&a.session.created_at));
+        results.truncate(MAX_RESULTS);
+
+        log::info!(
+            "Found {} matching sessions across all projects",
+            results.len()
+        );
+        Ok(results)
+    })
+    .await
+    .map_err(|e| format!("Search task failed: {}", e))?
+}
+
 /// Reads the Claude settings file
 #[tauri::command]
 pub async fn get_claude_settings() -> Result<ClaudeSettings, String> {

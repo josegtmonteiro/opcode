@@ -525,6 +525,20 @@ export const api = {
   },
 
   /**
+   * Search across all projects' sessions for messages matching the query
+   * @param query - The search query (supports AND, OR, NOT, "exact phrase")
+   * @returns Promise resolving to an array of matching sessions across all projects
+   */
+  async searchAllSessions(query: string): Promise<SessionSearchResult[]> {
+    try {
+      return await apiCall<SessionSearchResult[]>('search_all_sessions', { query });
+    } catch (error) {
+      console.error("Failed to search all sessions:", error);
+      throw error;
+    }
+  },
+
+  /**
    * Fetch list of agents from GitHub repository
    * @returns Promise resolving to list of available agents on GitHub
    */

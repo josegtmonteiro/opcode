@@ -168,6 +168,7 @@ function mapCommandToEndpoint(command: string, _params?: any): string {
     'list_projects': '/api/projects',
     'get_project_sessions': '/api/projects/{projectId}/sessions',
     'search_project_sessions': '/api/projects/{projectId}/sessions/search',
+    'search_all_sessions': '/api/sessions/search/global',
     
     // Agent commands
     'list_agents': '/api/agents',
