@@ -24,26 +24,25 @@ interface SessionListProps {
 
 const ITEMS_PER_PAGE = 12;
 
-/** Highlights all occurrences of `query` in `text` (case-insensitive) */
+/** Highlights all occurrences of `query` in `text` (case-insensitive, Unicode-safe) */
 function HighlightedText({ text, query }: { text: string; query: string }) {
   if (!query.trim()) return <>{text}</>;
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(escaped, 'gi');
   const parts: React.ReactNode[] = [];
-  const lowerText = text.toLowerCase();
-  const lowerQuery = query.toLowerCase();
   let lastIndex = 0;
+  let match: RegExpExecArray | null;
 
-  let pos = lowerText.indexOf(lowerQuery, lastIndex);
-  while (pos !== -1) {
-    if (pos > lastIndex) {
-      parts.push(text.slice(lastIndex, pos));
+  while ((match = re.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
     }
     parts.push(
-      <mark key={pos} className="bg-primary/30 text-foreground rounded-sm px-0.5">
-        {text.slice(pos, pos + query.length)}
+      <mark key={match.index} className="bg-primary/30 text-foreground rounded-sm px-0.5">
+        {match[0]}
       </mark>
     );
-    lastIndex = pos + query.length;
-    pos = lowerText.indexOf(lowerQuery, lastIndex);
+    lastIndex = match.index + match[0].length;
   }
 
   if (lastIndex < text.length) {
@@ -180,11 +179,13 @@ export const SessionList: React.FC<SessionListProps> = ({
   }, []);
 
   const handleSessionClick = useCallback((session: Session) => {
-    const event = new CustomEvent('claude-session-selected', {
+    if (onSessionClick) {
+      onSessionClick(session);
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('claude-session-selected', {
       detail: { session, projectPath }
-    });
-    window.dispatchEvent(event);
-    onSessionClick?.(session);
+    }));
   }, [projectPath, onSessionClick]);
 
   return (
