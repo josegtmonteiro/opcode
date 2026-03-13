@@ -682,9 +682,15 @@ pub async fn search_project_sessions(
 
         for entry in entries {
             let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+            let file_type = entry
+                .file_type()
+                .map_err(|e| format!("Failed to read entry type: {}", e))?;
+            if file_type.is_symlink() || !file_type.is_file() {
+                continue;
+            }
             let path = entry.path();
 
-            if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
+            if path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
                 if let Some(session_id) = path.file_stem().and_then(|s| s.to_str()) {
                     let snippets = extract_matching_snippets(&path, &query_lower);
                     if snippets.is_empty() {

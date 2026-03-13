@@ -272,9 +272,12 @@ export const SessionList: React.FC<SessionListProps> = ({
                     session.todo_data && "bg-primary/5"
                   )}>
                     {/* Accordion header */}
-                    <div
-                      className="flex items-center gap-3 p-3 cursor-pointer hover:bg-accent/50 rounded-t-lg"
+                    <button
+                      type="button"
+                      className="flex items-center gap-3 p-3 w-full text-left cursor-pointer hover:bg-accent/50 rounded-t-lg"
                       onClick={() => toggleExpanded(session.id)}
+                      aria-expanded={isExpanded}
+                      aria-controls={`session-snippets-${session.id}`}
                     >
                       <ChevronDown className={cn(
                         "h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-200",
@@ -304,7 +307,7 @@ export const SessionList: React.FC<SessionListProps> = ({
                       <span className="text-caption text-muted-foreground shrink-0">
                         {snippets.length} match{snippets.length !== 1 ? 'es' : ''}
                       </span>
-                    </div>
+                    </button>
 
                     {/* Accordion content: matching snippets */}
                     <AnimatePresence>
@@ -316,7 +319,7 @@ export const SessionList: React.FC<SessionListProps> = ({
                           transition={{ duration: 0.2 }}
                           className="overflow-hidden"
                         >
-                          <div className="border-t px-3 pb-3">
+                          <div id={`session-snippets-${session.id}`} className="border-t px-3 pb-3">
                             <div className="max-h-60 overflow-y-auto mt-2 space-y-2">
                               {snippets.map((snippet, i) => (
                                 <div
