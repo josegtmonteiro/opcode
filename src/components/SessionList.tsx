@@ -105,8 +105,7 @@ export const SessionList: React.FC<SessionListProps> = ({
       .catch((err) => {
         console.error("Search failed:", err);
         if (searchRequestId.current === requestId) {
-          setSearchResults([]);
-          setCurrentPage(1);
+          setSearchResults(null);
           setSearchError("Search failed. Please try again.");
         }
       })

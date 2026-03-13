@@ -587,6 +587,14 @@ pub async fn search_project_sessions(
     project_id: String,
     query: String,
 ) -> Result<Vec<Session>, String> {
+    let query = query.trim().to_string();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    if query.len() > 256 {
+        return Err("Query is too long".to_string());
+    }
+
     log::info!(
         "Searching sessions for project: {} (query length: {})",
         project_id,
