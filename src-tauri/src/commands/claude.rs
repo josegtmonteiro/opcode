@@ -698,10 +698,20 @@ pub async fn search_project_sessions(
             .map_err(|e| format!("Failed to read project directory: {}", e))?;
 
         for entry in entries {
-            let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
-            let file_type = entry
-                .file_type()
-                .map_err(|e| format!("Failed to read entry type: {}", e))?;
+            let entry = match entry {
+                Ok(e) => e,
+                Err(e) => {
+                    log::warn!("Skipping unreadable directory entry: {}", e);
+                    continue;
+                }
+            };
+            let file_type = match entry.file_type() {
+                Ok(ft) => ft,
+                Err(e) => {
+                    log::warn!("Skipping entry with unreadable type {:?}: {}", entry.path(), e);
+                    continue;
+                }
+            };
             if file_type.is_symlink() || !file_type.is_file() {
                 continue;
             }
@@ -714,8 +724,13 @@ pub async fn search_project_sessions(
                         continue;
                     }
 
-                    let metadata = fs::metadata(&path)
-                        .map_err(|e| format!("Failed to read file metadata: {}", e))?;
+                    let metadata = match fs::metadata(&path) {
+                        Ok(m) => m,
+                        Err(e) => {
+                            log::warn!("Skipping unreadable session file {:?}: {}", path, e);
+                            continue;
+                        }
+                    };
 
                     let created_at = metadata
                         .created()
