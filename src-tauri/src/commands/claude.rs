@@ -593,78 +593,94 @@ pub async fn search_project_sessions(
         query.len()
     );
 
+    // Validate project_id to prevent path traversal
+    let project_component = std::path::Path::new(&project_id);
+    if project_component.is_absolute()
+        || project_component.components().count() != 1
+        || !matches!(
+            project_component.components().next(),
+            Some(std::path::Component::Normal(_))
+        )
+    {
+        return Err("Invalid project id".to_string());
+    }
+
     let query_lower = query.to_lowercase();
     let claude_dir = get_claude_dir().map_err(|e| e.to_string())?;
-    let project_dir = claude_dir.join("projects").join(&project_id);
+    let project_dir = claude_dir.join("projects").join(project_component);
     let todos_dir = claude_dir.join("todos");
 
     if !project_dir.exists() {
         return Err(format!("Project directory not found: {}", project_id));
     }
 
-    let project_path = match get_project_path_from_sessions(&project_dir) {
-        Ok(path) => path,
-        Err(_) => decode_project_path(&project_id),
-    };
+    tokio::task::spawn_blocking(move || {
+        let project_path = match get_project_path_from_sessions(&project_dir) {
+            Ok(path) => path,
+            Err(_) => decode_project_path(&project_id),
+        };
 
-    let mut sessions = Vec::new();
+        let mut sessions = Vec::new();
 
-    let entries = fs::read_dir(&project_dir)
-        .map_err(|e| format!("Failed to read project directory: {}", e))?;
+        let entries = fs::read_dir(&project_dir)
+            .map_err(|e| format!("Failed to read project directory: {}", e))?;
 
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
-        let path = entry.path();
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+            let path = entry.path();
 
-        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
-            if let Some(session_id) = path.file_stem().and_then(|s| s.to_str()) {
-                if !session_contains_query(&path, &query_lower) {
-                    continue;
+            if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
+                if let Some(session_id) = path.file_stem().and_then(|s| s.to_str()) {
+                    if !session_contains_query(&path, &query_lower) {
+                        continue;
+                    }
+
+                    let metadata = fs::metadata(&path)
+                        .map_err(|e| format!("Failed to read file metadata: {}", e))?;
+
+                    let created_at = metadata
+                        .created()
+                        .or_else(|_| metadata.modified())
+                        .unwrap_or(SystemTime::UNIX_EPOCH)
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+
+                    let (first_message, message_timestamp) = extract_first_user_message(&path);
+
+                    let todo_path = todos_dir.join(format!("{}.json", session_id));
+                    let todo_data = if todo_path.exists() {
+                        fs::read_to_string(&todo_path)
+                            .ok()
+                            .and_then(|content| serde_json::from_str(&content).ok())
+                    } else {
+                        None
+                    };
+
+                    sessions.push(Session {
+                        id: session_id.to_string(),
+                        project_id: project_id.clone(),
+                        project_path: project_path.clone(),
+                        todo_data,
+                        created_at,
+                        first_message,
+                        message_timestamp,
+                    });
                 }
-
-                let metadata = fs::metadata(&path)
-                    .map_err(|e| format!("Failed to read file metadata: {}", e))?;
-
-                let created_at = metadata
-                    .created()
-                    .or_else(|_| metadata.modified())
-                    .unwrap_or(SystemTime::UNIX_EPOCH)
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-
-                let (first_message, message_timestamp) = extract_first_user_message(&path);
-
-                let todo_path = todos_dir.join(format!("{}.json", session_id));
-                let todo_data = if todo_path.exists() {
-                    fs::read_to_string(&todo_path)
-                        .ok()
-                        .and_then(|content| serde_json::from_str(&content).ok())
-                } else {
-                    None
-                };
-
-                sessions.push(Session {
-                    id: session_id.to_string(),
-                    project_id: project_id.clone(),
-                    project_path: project_path.clone(),
-                    todo_data,
-                    created_at,
-                    first_message,
-                    message_timestamp,
-                });
             }
         }
-    }
 
-    sessions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        sessions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
-    log::info!(
-        "Found {} matching sessions for project {}",
-        sessions.len(),
-        project_id
-    );
-    Ok(sessions)
+        log::info!(
+            "Found {} matching sessions for project {}",
+            sessions.len(),
+            project_id
+        );
+        Ok(sessions)
+    })
+    .await
+    .map_err(|e| format!("Search task failed: {}", e))?
 }
 
 /// Reads the Claude settings file
