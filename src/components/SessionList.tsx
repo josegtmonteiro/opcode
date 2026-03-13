@@ -111,7 +111,7 @@ export const SessionList: React.FC<SessionListProps> = ({
       skipNextSearch.current = false;
       return;
     }
-    if (!debouncedQuery.trim()) {
+    if (debouncedQuery.trim().length < 2) {
       setSearchResults(null);
       setSearchError(null);
       setSearching(false);
@@ -144,7 +144,7 @@ export const SessionList: React.FC<SessionListProps> = ({
       });
   }, [debouncedQuery, projectId]);
 
-  const isSearchActive = debouncedQuery.trim() !== '' || searching || searchResults !== null;
+  const isSearchActive = searchQuery.trim().length >= 2 || searching || searchResults !== null;
   const displayedSessions: (Session | SessionSearchResult)[] = isSearchActive ? (searchResults ?? []) : sessions;
 
   // Calculate pagination
