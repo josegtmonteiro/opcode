@@ -178,22 +178,24 @@ export const SessionList: React.FC<SessionListProps> = ({
       </div>
 
       {/* Search status */}
-      {searching && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Searching sessions...
-        </div>
-      )}
-      {searchError && !searching && (
-        <p className="text-sm text-destructive">{searchError}</p>
-      )}
-      {searchResults !== null && !searching && !searchError && (
-        <p className="text-sm text-muted-foreground">
-          {searchResults.length === 0
-            ? "No sessions found"
-            : `${searchResults.length} of ${sessions.length} sessions`}
-        </p>
-      )}
+      <div aria-live="polite" aria-atomic="true">
+        {searching && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Searching sessions...
+          </div>
+        )}
+        {searchError && !searching && (
+          <p className="text-sm text-destructive">{searchError}</p>
+        )}
+        {searchResults !== null && !searching && !searchError && (
+          <p className="text-sm text-muted-foreground">
+            {searchResults.length === 0
+              ? "No sessions found"
+              : `${searchResults.length} of ${sessions.length} sessions`}
+          </p>
+        )}
+      </div>
 
       {/* CLAUDE.md Memories Dropdown */}
       {onEditClaudeFile && (
