@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Clock, MessageSquare, Search, Loader2, X, ChevronDown } from "lucide-react";
+import { Clock, MessageSquare, Search, Loader2, X, ChevronDown, ExternalLink, Copy, Check } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
@@ -77,6 +77,7 @@ export const SessionList: React.FC<SessionListProps> = ({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set());
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const debouncedQuery = useDebounce(searchQuery, 300);
   const searchRequestId = useRef(0);
   const skipNextSearch = useRef(false);
@@ -178,6 +179,12 @@ export const SessionList: React.FC<SessionListProps> = ({
     });
   }, []);
 
+  const copyResumeCommand = useCallback((sessionId: string) => {
+    navigator.clipboard.writeText(`claude --resume ${sessionId}`);
+    setCopiedId(sessionId);
+    setTimeout(() => setCopiedId(null), 2000);
+  }, []);
+
   const handleSessionClick = useCallback((session: Session) => {
     if (onSessionClick) {
       onSessionClick(session);
@@ -273,42 +280,67 @@ export const SessionList: React.FC<SessionListProps> = ({
                     session.todo_data && "bg-primary/5"
                   )}>
                     {/* Accordion header */}
-                    <button
-                      type="button"
-                      className="flex items-center gap-3 p-3 w-full text-left cursor-pointer hover:bg-accent/50 rounded-t-lg"
-                      onClick={() => toggleExpanded(session.id)}
-                      aria-expanded={isExpanded}
-                      aria-controls={`session-snippets-${session.id}`}
-                    >
-                      <ChevronDown className={cn(
-                        "h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-200",
-                        isExpanded && "rotate-180"
-                      )} />
-                      <Clock className="h-4 w-4 text-primary shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-body-small font-medium">
-                            Session on {formatSessionDate(session)}
-                          </p>
-                          {session.todo_data && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-caption font-medium bg-primary/10 text-primary">
-                              Todo
+                    <div className="flex items-center gap-3 p-3 hover:bg-accent/50 rounded-t-lg">
+                      <button
+                        type="button"
+                        className="flex items-center gap-3 flex-1 min-w-0 text-left cursor-pointer"
+                        onClick={() => toggleExpanded(session.id)}
+                        aria-expanded={isExpanded}
+                        aria-controls={`session-snippets-${session.id}`}
+                      >
+                        <ChevronDown className={cn(
+                          "h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-200",
+                          isExpanded && "rotate-180"
+                        )} />
+                        <Clock className="h-4 w-4 text-primary shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-body-small font-medium">
+                              Session on {formatSessionDate(session)}
+                            </p>
+                            {session.todo_data && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-caption font-medium bg-primary/10 text-primary">
+                                Todo
+                              </span>
+                            )}
+                            <span className="text-caption text-muted-foreground font-mono ml-auto">
+                              {session.id.slice(-8)}
                             </span>
+                          </div>
+                          {session.first_message && (
+                            <p className="text-caption text-muted-foreground line-clamp-1 mt-0.5">
+                              {truncateText(getFirstLine(session.first_message), 120)}
+                            </p>
                           )}
-                          <span className="text-caption text-muted-foreground font-mono ml-auto">
-                            {session.id.slice(-8)}
-                          </span>
                         </div>
-                        {session.first_message && (
-                          <p className="text-caption text-muted-foreground line-clamp-1 mt-0.5">
-                            {truncateText(getFirstLine(session.first_message), 120)}
-                          </p>
-                        )}
+                        <span className="text-caption text-muted-foreground shrink-0">
+                          {snippets.length} match{snippets.length !== 1 ? 'es' : ''}
+                        </span>
+                      </button>
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <button
+                          type="button"
+                          title="Open session"
+                          aria-label="Open session"
+                          className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                          onClick={() => handleSessionClick(session)}
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          title="Copy resume command"
+                          aria-label="Copy resume command"
+                          className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                          onClick={() => copyResumeCommand(session.id)}
+                        >
+                          {copiedId === session.id
+                            ? <Check className="h-3.5 w-3.5 text-green-500" />
+                            : <Copy className="h-3.5 w-3.5" />
+                          }
+                        </button>
                       </div>
-                      <span className="text-caption text-muted-foreground shrink-0">
-                        {snippets.length} match{snippets.length !== 1 ? 'es' : ''}
-                      </span>
-                    </button>
+                    </div>
 
                     {/* Accordion content: matching snippets */}
                     <AnimatePresence>
@@ -331,15 +363,6 @@ export const SessionList: React.FC<SessionListProps> = ({
                                 </div>
                               ))}
                             </div>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleSessionClick(session);
-                              }}
-                              className="mt-2 text-xs text-primary hover:underline"
-                            >
-                              Open session
-                            </button>
                           </div>
                         </motion.div>
                       )}
