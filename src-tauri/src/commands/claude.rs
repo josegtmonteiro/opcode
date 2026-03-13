@@ -578,7 +578,6 @@ fn extract_matching_snippets(jsonl_path: &PathBuf, query_lower: &str) -> Vec<Str
 
     let reader = BufReader::new(file);
     let mut snippets = Vec::new();
-    let query_len = query_lower.len();
 
     for line in reader.lines() {
         if snippets.len() >= MAX_SNIPPETS {
@@ -588,36 +587,50 @@ fn extract_matching_snippets(jsonl_path: &PathBuf, query_lower: &str) -> Vec<Str
             if let Ok(entry) = serde_json::from_str::<JsonlEntry>(&line) {
                 if let Some(message) = entry.message {
                     if let Some(content) = message.content {
-                        // Work entirely on the lowered string for consistent offsets
-                        let content_lower = content.to_lowercase();
-                        let mut search_from = 0;
-                        while let Some(pos) = content_lower[search_from..].find(query_lower) {
+                        // Find matches by comparing chars case-insensitively
+                        // to preserve original casing in snippets
+                        let chars_orig: Vec<(usize, char)> =
+                            content.char_indices().collect();
+                        let query_chars: Vec<char> = query_lower.chars().collect();
+                        let mut ci = 0;
+                        while ci + query_chars.len() <= chars_orig.len() {
                             if snippets.len() >= MAX_SNIPPETS {
                                 break;
                             }
-                            let abs_pos = search_from + pos;
-                            // Extract window on the lowered string (offsets are consistent)
-                            let start = abs_pos.saturating_sub(CONTEXT_CHARS);
-                            let end =
-                                (abs_pos + query_len + CONTEXT_CHARS).min(content_lower.len());
-                            let start = content_lower.floor_char_boundary(start);
-                            let end = content_lower.ceil_char_boundary(end);
-                            // Use the lowered string for the snippet text to keep offset consistency
-                            // but preserve readability by extracting from original where possible.
-                            // Since lowercase can change length, use the lowered text for slicing.
-                            let raw = &content_lower[start..end];
-                            let mut snippet =
-                                raw.split_whitespace().collect::<Vec<_>>().join(" ");
-                            if start > 0 {
-                                snippet = format!("...{}", snippet);
+                            let matched = chars_orig[ci..ci + query_chars.len()]
+                                .iter()
+                                .zip(&query_chars)
+                                .all(|((_, c), q)| {
+                                    c.to_lowercase().eq(q.to_lowercase())
+                                });
+                            if matched {
+                                // Context window in chars
+                                let ctx_start_ci = ci.saturating_sub(CONTEXT_CHARS);
+                                let ctx_end_ci =
+                                    (ci + query_chars.len() + CONTEXT_CHARS).min(chars_orig.len());
+                                let start = chars_orig[ctx_start_ci].0;
+                                let end = if ctx_end_ci < chars_orig.len() {
+                                    chars_orig[ctx_end_ci].0
+                                } else {
+                                    content.len()
+                                };
+                                let raw = &content[start..end];
+                                let mut snippet =
+                                    raw.split_whitespace().collect::<Vec<_>>().join(" ");
+                                if start > 0 {
+                                    snippet = format!("...{}", snippet);
+                                }
+                                if end < content.len() {
+                                    snippet = format!("{}...", snippet);
+                                }
+                                if !snippet.is_empty() {
+                                    snippets.push(snippet);
+                                }
+                                // Advance past the match
+                                ci += query_chars.len();
+                            } else {
+                                ci += 1;
                             }
-                            if end < content_lower.len() {
-                                snippet = format!("{}...", snippet);
-                            }
-                            if !snippet.is_empty() {
-                                snippets.push(snippet);
-                            }
-                            search_from = abs_pos + query_len;
                         }
                     }
                 }
