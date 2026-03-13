@@ -589,8 +589,7 @@ fn extract_matching_snippets(jsonl_path: &PathBuf, query_lower: &str) -> Vec<Str
                     if let Some(content) = message.content {
                         // Find matches by comparing chars case-insensitively
                         // to preserve original casing in snippets
-                        let chars_orig: Vec<(usize, char)> =
-                            content.char_indices().collect();
+                        let chars_orig: Vec<(usize, char)> = content.char_indices().collect();
                         let query_chars: Vec<char> = query_lower.chars().collect();
                         let mut ci = 0;
                         while ci + query_chars.len() <= chars_orig.len() {
@@ -600,9 +599,7 @@ fn extract_matching_snippets(jsonl_path: &PathBuf, query_lower: &str) -> Vec<Str
                             let matched = chars_orig[ci..ci + query_chars.len()]
                                 .iter()
                                 .zip(&query_chars)
-                                .all(|((_, c), q)| {
-                                    c.to_lowercase().eq(q.to_lowercase())
-                                });
+                                .all(|((_, c), q)| c.to_lowercase().eq(q.to_lowercase()));
                             if matched {
                                 // Context window in chars
                                 let ctx_start_ci = ci.saturating_sub(CONTEXT_CHARS);
@@ -671,9 +668,7 @@ pub async fn search_project_sessions(
     let project_dir = projects_dir.join(&project_id);
 
     // Verify resolved path stays under the projects root
-    let canonical_projects_dir = projects_dir
-        .canonicalize()
-        .map_err(|e| e.to_string())?;
+    let canonical_projects_dir = projects_dir.canonicalize().map_err(|e| e.to_string())?;
     let canonical_project_dir = project_dir
         .canonicalize()
         .map_err(|_| format!("Project directory not found: {}", project_id))?;
@@ -708,7 +703,11 @@ pub async fn search_project_sessions(
             let file_type = match entry.file_type() {
                 Ok(ft) => ft,
                 Err(e) => {
-                    log::warn!("Skipping entry with unreadable type {:?}: {}", entry.path(), e);
+                    log::warn!(
+                        "Skipping entry with unreadable type {:?}: {}",
+                        entry.path(),
+                        e
+                    );
                     continue;
                 }
             };

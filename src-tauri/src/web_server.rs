@@ -807,7 +807,10 @@ pub async fn create_web_server(port: u16) -> Result<(), Box<dyn std::error::Erro
         // API routes (REST API equivalent of Tauri commands)
         .route("/api/projects", get(get_projects))
         .route("/api/projects/{project_id}/sessions", get(get_sessions))
-        .route("/api/projects/{project_id}/sessions/search", get(search_sessions))
+        .route(
+            "/api/projects/{project_id}/sessions/search",
+            get(search_sessions),
+        )
         .route("/api/agents", get(get_agents))
         .route("/api/usage", get(get_usage))
         // Settings and configuration
