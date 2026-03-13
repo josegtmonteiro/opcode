@@ -241,7 +241,7 @@ export const SessionList: React.FC<SessionListProps> = ({
           <p className="text-sm text-muted-foreground">
             {searchResults.length === 0
               ? "No sessions found"
-              : `${searchResults.length} of ${sessions.length} sessions`}
+              : `Showing ${searchResults.length} result${searchResults.length !== 1 ? 's' : ''}`}
           </p>
         )}
       </div>
