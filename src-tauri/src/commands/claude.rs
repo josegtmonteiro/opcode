@@ -588,9 +588,9 @@ pub async fn search_project_sessions(
     query: String,
 ) -> Result<Vec<Session>, String> {
     log::info!(
-        "Searching sessions for project: {} with query: {}",
+        "Searching sessions for project: {} (query length: {})",
         project_id,
-        query
+        query.len()
     );
 
     let query_lower = query.to_lowercase();
@@ -660,10 +660,9 @@ pub async fn search_project_sessions(
     sessions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
     log::info!(
-        "Found {} matching sessions for project {} with query '{}'",
+        "Found {} matching sessions for project {}",
         sessions.len(),
-        project_id,
-        query
+        project_id
     );
     Ok(sessions)
 }

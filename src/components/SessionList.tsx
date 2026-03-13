@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Clock, MessageSquare, Search, Loader2, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -67,40 +67,52 @@ export const SessionList: React.FC<SessionListProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Session[] | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const debouncedQuery = useDebounce(searchQuery, 300);
+  const searchRequestId = useRef(0);
+
+  // Invalidate immediately when raw query or projectId changes
+  useEffect(() => {
+    searchRequestId.current += 1;
+    if (!searchQuery.trim()) {
+      setSearchResults(null);
+      setSearchError(null);
+      setSearching(false);
+    }
+  }, [searchQuery, projectId]);
 
   // Perform search when debounced query changes
   useEffect(() => {
     if (!debouncedQuery.trim()) {
       setSearchResults(null);
+      setSearchError(null);
       setSearching(false);
       return;
     }
 
-    let cancelled = false;
+    const requestId = ++searchRequestId.current;
     setSearching(true);
+    setSearchError(null);
 
     api.searchProjectSessions(projectId, debouncedQuery.trim())
       .then((results) => {
-        if (!cancelled) {
+        if (searchRequestId.current === requestId) {
           setSearchResults(results);
           setCurrentPage(1);
         }
       })
       .catch((err) => {
         console.error("Search failed:", err);
-        if (!cancelled) {
-          setSearchResults([]);
+        if (searchRequestId.current === requestId) {
+          setSearchError("Search failed. Please try again.");
         }
       })
       .finally(() => {
-        if (!cancelled) {
+        if (searchRequestId.current === requestId) {
           setSearching(false);
         }
       });
-
-    return () => { cancelled = true; };
   }, [debouncedQuery, projectId]);
 
   const displayedSessions = searchResults !== null ? searchResults : sessions;
@@ -119,6 +131,7 @@ export const SessionList: React.FC<SessionListProps> = ({
   const clearSearch = useCallback(() => {
     setSearchQuery("");
     setSearchResults(null);
+    setSearchError(null);
     setCurrentPage(1);
   }, []);
   
@@ -151,7 +164,10 @@ export const SessionList: React.FC<SessionListProps> = ({
           Searching sessions...
         </div>
       )}
-      {searchResults !== null && !searching && (
+      {searchError && !searching && (
+        <p className="text-sm text-destructive">{searchError}</p>
+      )}
+      {searchResults !== null && !searching && !searchError && (
         <p className="text-sm text-muted-foreground">
           {searchResults.length === 0
             ? "No sessions found"
