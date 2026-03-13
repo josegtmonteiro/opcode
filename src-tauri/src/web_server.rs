@@ -139,7 +139,7 @@ struct SearchQuery {
 async fn search_sessions(
     Path(project_id): Path<String>,
     Query(params): Query<SearchQuery>,
-) -> Json<ApiResponse<Vec<commands::claude::Session>>> {
+) -> Json<ApiResponse<Vec<commands::claude::SessionSearchResult>>> {
     let query = params.query.trim().to_string();
     if query.is_empty() {
         return Json(ApiResponse::success(Vec::new()));

@@ -53,6 +53,11 @@ export interface Session {
   message_timestamp?: string;
 }
 
+export interface SessionSearchResult extends Session {
+  /** Matching text snippets from the session */
+  snippets: string[];
+}
+
 /**
  * Represents the settings from ~/.claude/settings.json
  */
@@ -508,9 +513,9 @@ export const api = {
    * @param query - The search query
    * @returns Promise resolving to an array of matching sessions
    */
-  async searchProjectSessions(projectId: string, query: string): Promise<Session[]> {
+  async searchProjectSessions(projectId: string, query: string): Promise<SessionSearchResult[]> {
     try {
-      return await apiCall<Session[]>('search_project_sessions', { projectId, query });
+      return await apiCall<SessionSearchResult[]>('search_project_sessions', { projectId, query });
     } catch (error) {
       console.error("Failed to search project sessions:", error);
       throw error;

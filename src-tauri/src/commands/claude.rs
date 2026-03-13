@@ -57,6 +57,15 @@ pub struct Session {
     pub message_timestamp: Option<String>,
 }
 
+/// Represents a session search result with matching snippets
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionSearchResult {
+    #[serde(flatten)]
+    pub session: Session,
+    /// Matching text snippets from the session
+    pub snippets: Vec<String>,
+}
+
 /// Represents a message entry in the JSONL file
 #[derive(Debug, Deserialize)]
 struct JsonlEntry {
@@ -556,21 +565,55 @@ pub async fn get_project_sessions(project_id: String) -> Result<Vec<Session>, St
 }
 
 /// Checks if any message in a JSONL session file contains the query (case-insensitive)
-fn session_contains_query(jsonl_path: &PathBuf, query_lower: &str) -> bool {
+/// Extracts matching text snippets from a session JSONL file.
+/// Returns up to MAX_SNIPPETS snippets containing the query, trimmed to context around the match.
+fn extract_matching_snippets(jsonl_path: &PathBuf, query_lower: &str) -> Vec<String> {
+    const MAX_SNIPPETS: usize = 20;
+    const CONTEXT_CHARS: usize = 100;
+
     let file = match fs::File::open(jsonl_path) {
         Ok(file) => file,
-        Err(_) => return false,
+        Err(_) => return Vec::new(),
     };
 
     let reader = BufReader::new(file);
+    let mut snippets = Vec::new();
 
     for line in reader.lines() {
+        if snippets.len() >= MAX_SNIPPETS {
+            break;
+        }
         if let Ok(line) = line {
             if let Ok(entry) = serde_json::from_str::<JsonlEntry>(&line) {
                 if let Some(message) = entry.message {
                     if let Some(content) = message.content {
-                        if content.to_lowercase().contains(query_lower) {
-                            return true;
+                        let content_lower = content.to_lowercase();
+                        // Find all occurrences in this message
+                        let mut search_from = 0;
+                        while let Some(pos) = content_lower[search_from..].find(query_lower) {
+                            if snippets.len() >= MAX_SNIPPETS {
+                                break;
+                            }
+                            let abs_pos = search_from + pos;
+                            // Extract a window around the match
+                            let start = abs_pos.saturating_sub(CONTEXT_CHARS);
+                            let end = (abs_pos + query_lower.len() + CONTEXT_CHARS).min(content.len());
+                            // Align to char boundaries
+                            let start = content.floor_char_boundary(start);
+                            let end = content.ceil_char_boundary(end);
+                            let mut snippet = content[start..end].to_string();
+                            // Clean up: collapse whitespace and trim
+                            snippet = snippet.split_whitespace().collect::<Vec<_>>().join(" ");
+                            if start > 0 {
+                                snippet = format!("...{}", snippet);
+                            }
+                            if end < content.len() {
+                                snippet = format!("{}...", snippet);
+                            }
+                            if !snippet.is_empty() {
+                                snippets.push(snippet);
+                            }
+                            search_from = abs_pos + query_lower.len();
                         }
                     }
                 }
@@ -578,7 +621,7 @@ fn session_contains_query(jsonl_path: &PathBuf, query_lower: &str) -> bool {
         }
     }
 
-    false
+    snippets
 }
 
 /// Searches through all session JSONL files in a project for messages containing the query
@@ -586,7 +629,7 @@ fn session_contains_query(jsonl_path: &PathBuf, query_lower: &str) -> bool {
 pub async fn search_project_sessions(
     project_id: String,
     query: String,
-) -> Result<Vec<Session>, String> {
+) -> Result<Vec<SessionSearchResult>, String> {
     let query = query.trim().to_string();
     if query.is_empty() {
         return Ok(Vec::new());
@@ -632,7 +675,7 @@ pub async fn search_project_sessions(
             Err(_) => decode_project_path(&project_id),
         };
 
-        let mut sessions = Vec::new();
+        let mut results: Vec<SessionSearchResult> = Vec::new();
 
         let entries = fs::read_dir(&project_dir)
             .map_err(|e| format!("Failed to read project directory: {}", e))?;
@@ -643,7 +686,8 @@ pub async fn search_project_sessions(
 
             if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
                 if let Some(session_id) = path.file_stem().and_then(|s| s.to_str()) {
-                    if !session_contains_query(&path, &query_lower) {
+                    let snippets = extract_matching_snippets(&path, &query_lower);
+                    if snippets.is_empty() {
                         continue;
                     }
 
@@ -669,28 +713,31 @@ pub async fn search_project_sessions(
                         None
                     };
 
-                    sessions.push(Session {
-                        id: session_id.to_string(),
-                        project_id: project_id.clone(),
-                        project_path: project_path.clone(),
-                        todo_data,
-                        created_at,
-                        first_message,
-                        message_timestamp,
+                    results.push(SessionSearchResult {
+                        session: Session {
+                            id: session_id.to_string(),
+                            project_id: project_id.clone(),
+                            project_path: project_path.clone(),
+                            todo_data,
+                            created_at,
+                            first_message,
+                            message_timestamp,
+                        },
+                        snippets,
                     });
                 }
             }
         }
 
-        sessions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-        sessions.truncate(MAX_RESULTS);
+        results.sort_by(|a, b| b.session.created_at.cmp(&a.session.created_at));
+        results.truncate(MAX_RESULTS);
 
         log::info!(
             "Found {} matching sessions for project {}",
-            sessions.len(),
+            results.len(),
             project_id
         );
-        Ok(sessions)
+        Ok(results)
     })
     .await
     .map_err(|e| format!("Search task failed: {}", e))?
