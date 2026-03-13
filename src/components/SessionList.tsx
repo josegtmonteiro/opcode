@@ -1,12 +1,15 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Clock, MessageSquare } from "lucide-react";
+import { Clock, MessageSquare, Search, Loader2, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import { ClaudeMemoriesDropdown } from "@/components/ClaudeMemoriesDropdown";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { truncateText, getFirstLine } from "@/lib/date-utils";
+import { useDebounce } from "@/hooks/useDebounce";
+import { api } from "@/lib/api";
 import type { Session, ClaudeMdFile } from "@/lib/api";
 
 interface SessionListProps {
@@ -14,6 +17,10 @@ interface SessionListProps {
    * Array of sessions to display
    */
   sessions: Session[];
+  /**
+   * The project ID (for search API calls)
+   */
+  projectId: string;
   /**
    * The current project path being viewed
    */
@@ -51,27 +58,107 @@ const ITEMS_PER_PAGE = 12;
  */
 export const SessionList: React.FC<SessionListProps> = ({
   sessions,
+  projectId,
   projectPath,
   onSessionClick,
   onEditClaudeFile,
   className,
 }) => {
   const [currentPage, setCurrentPage] = useState(1);
-  
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Session[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const debouncedQuery = useDebounce(searchQuery, 300);
+
+  // Perform search when debounced query changes
+  useEffect(() => {
+    if (!debouncedQuery.trim()) {
+      setSearchResults(null);
+      setSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSearching(true);
+
+    api.searchProjectSessions(projectId, debouncedQuery.trim())
+      .then((results) => {
+        if (!cancelled) {
+          setSearchResults(results);
+          setCurrentPage(1);
+        }
+      })
+      .catch((err) => {
+        console.error("Search failed:", err);
+        if (!cancelled) {
+          setSearchResults([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSearching(false);
+        }
+      });
+
+    return () => { cancelled = true; };
+  }, [debouncedQuery, projectId]);
+
+  const displayedSessions = searchResults !== null ? searchResults : sessions;
+
   // Calculate pagination
-  const totalPages = Math.ceil(sessions.length / ITEMS_PER_PAGE);
+  const totalPages = Math.ceil(displayedSessions.length / ITEMS_PER_PAGE);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   const endIndex = startIndex + ITEMS_PER_PAGE;
-  const currentSessions = sessions.slice(startIndex, endIndex);
-  
+  const currentSessions = displayedSessions.slice(startIndex, endIndex);
+
   // Reset to page 1 if sessions change
-  React.useEffect(() => {
+  useEffect(() => {
     setCurrentPage(1);
   }, [sessions.length]);
+
+  const clearSearch = useCallback(() => {
+    setSearchQuery("");
+    setSearchResults(null);
+    setCurrentPage(1);
+  }, []);
   
   return (
     <TooltipProvider>
       <div className={cn("space-y-4", className)}>
+      {/* Search bar */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search all sessions..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-9 pr-9 h-9"
+        />
+        {searchQuery && (
+          <button
+            onClick={clearSearch}
+            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      {/* Search status */}
+      {searching && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Searching sessions...
+        </div>
+      )}
+      {searchResults !== null && !searching && (
+        <p className="text-sm text-muted-foreground">
+          {searchResults.length === 0
+            ? "No sessions found"
+            : `${searchResults.length} of ${sessions.length} sessions`}
+        </p>
+      )}
+
       {/* CLAUDE.md Memories Dropdown */}
       {onEditClaudeFile && (
         <motion.div

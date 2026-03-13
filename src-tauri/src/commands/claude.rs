@@ -555,6 +555,119 @@ pub async fn get_project_sessions(project_id: String) -> Result<Vec<Session>, St
     Ok(sessions)
 }
 
+/// Checks if any message in a JSONL session file contains the query (case-insensitive)
+fn session_contains_query(jsonl_path: &PathBuf, query_lower: &str) -> bool {
+    let file = match fs::File::open(jsonl_path) {
+        Ok(file) => file,
+        Err(_) => return false,
+    };
+
+    let reader = BufReader::new(file);
+
+    for line in reader.lines() {
+        if let Ok(line) = line {
+            if let Ok(entry) = serde_json::from_str::<JsonlEntry>(&line) {
+                if let Some(message) = entry.message {
+                    if let Some(content) = message.content {
+                        if content.to_lowercase().contains(query_lower) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    false
+}
+
+/// Searches through all session JSONL files in a project for messages containing the query
+#[tauri::command]
+pub async fn search_project_sessions(
+    project_id: String,
+    query: String,
+) -> Result<Vec<Session>, String> {
+    log::info!(
+        "Searching sessions for project: {} with query: {}",
+        project_id,
+        query
+    );
+
+    let query_lower = query.to_lowercase();
+    let claude_dir = get_claude_dir().map_err(|e| e.to_string())?;
+    let project_dir = claude_dir.join("projects").join(&project_id);
+    let todos_dir = claude_dir.join("todos");
+
+    if !project_dir.exists() {
+        return Err(format!("Project directory not found: {}", project_id));
+    }
+
+    let project_path = match get_project_path_from_sessions(&project_dir) {
+        Ok(path) => path,
+        Err(_) => decode_project_path(&project_id),
+    };
+
+    let mut sessions = Vec::new();
+
+    let entries = fs::read_dir(&project_dir)
+        .map_err(|e| format!("Failed to read project directory: {}", e))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+        let path = entry.path();
+
+        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
+            if let Some(session_id) = path.file_stem().and_then(|s| s.to_str()) {
+                if !session_contains_query(&path, &query_lower) {
+                    continue;
+                }
+
+                let metadata = fs::metadata(&path)
+                    .map_err(|e| format!("Failed to read file metadata: {}", e))?;
+
+                let created_at = metadata
+                    .created()
+                    .or_else(|_| metadata.modified())
+                    .unwrap_or(SystemTime::UNIX_EPOCH)
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+
+                let (first_message, message_timestamp) = extract_first_user_message(&path);
+
+                let todo_path = todos_dir.join(format!("{}.json", session_id));
+                let todo_data = if todo_path.exists() {
+                    fs::read_to_string(&todo_path)
+                        .ok()
+                        .and_then(|content| serde_json::from_str(&content).ok())
+                } else {
+                    None
+                };
+
+                sessions.push(Session {
+                    id: session_id.to_string(),
+                    project_id: project_id.clone(),
+                    project_path: project_path.clone(),
+                    todo_data,
+                    created_at,
+                    first_message,
+                    message_timestamp,
+                });
+            }
+        }
+    }
+
+    sessions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+    log::info!(
+        "Found {} matching sessions for project {} with query '{}'",
+        sessions.len(),
+        project_id,
+        query
+    );
+    Ok(sessions)
+}
+
 /// Reads the Claude settings file
 #[tauri::command]
 pub async fn get_claude_settings() -> Result<ClaudeSettings, String> {

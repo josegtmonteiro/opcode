@@ -503,6 +503,21 @@ export const api = {
   },
 
   /**
+   * Searches through all session messages for a project
+   * @param projectId - The ID of the project
+   * @param query - The search query
+   * @returns Promise resolving to an array of matching sessions
+   */
+  async searchProjectSessions(projectId: string, query: string): Promise<Session[]> {
+    try {
+      return await apiCall<Session[]>('search_project_sessions', { projectId, query });
+    } catch (error) {
+      console.error("Failed to search project sessions:", error);
+      throw error;
+    }
+  },
+
+  /**
    * Fetch list of agents from GitHub repository
    * @returns Promise resolving to list of available agents on GitHub
    */
