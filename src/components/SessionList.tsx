@@ -145,7 +145,7 @@ export const SessionList: React.FC<SessionListProps> = ({
       });
   }, [debouncedQuery, projectId]);
 
-  const isSearchActive = searchQuery.trim().length >= 2 || searching || searchResults !== null;
+  const isSearchActive = debouncedQuery.trim().length >= 2 || searching || searchResults !== null;
   const displayedSessions: (Session | SessionSearchResult)[] = isSearchActive ? (searchResults ?? []) : sessions;
 
   // Calculate pagination
@@ -180,9 +180,13 @@ export const SessionList: React.FC<SessionListProps> = ({
   }, []);
 
   const copyResumeCommand = useCallback((sessionId: string) => {
-    navigator.clipboard.writeText(`claude --resume ${sessionId}`);
-    setCopiedId(sessionId);
-    setTimeout(() => setCopiedId(null), 2000);
+    if (!navigator.clipboard) return;
+    navigator.clipboard.writeText(`claude --resume ${sessionId}`)
+      .then(() => {
+        setCopiedId(sessionId);
+        setTimeout(() => setCopiedId(null), 2000);
+      })
+      .catch((err) => console.error("Failed to copy:", err));
   }, []);
 
   const handleSessionClick = useCallback((session: Session) => {
