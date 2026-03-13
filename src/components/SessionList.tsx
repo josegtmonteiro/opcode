@@ -144,8 +144,8 @@ export const SessionList: React.FC<SessionListProps> = ({
       });
   }, [debouncedQuery, projectId]);
 
-  const isSearchActive = searchResults !== null;
-  const displayedSessions: (Session | SessionSearchResult)[] = isSearchActive ? searchResults : sessions;
+  const isSearchActive = searchQuery.trim() !== '' || searching || searchResults !== null;
+  const displayedSessions: (Session | SessionSearchResult)[] = isSearchActive ? (searchResults ?? []) : sessions;
 
   // Calculate pagination
   const totalPages = Math.max(1, Math.ceil(displayedSessions.length / ITEMS_PER_PAGE));
