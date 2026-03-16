@@ -7,7 +7,8 @@ import {
   ChevronUp,
   X,
   Hash,
-  Wrench
+  Wrench,
+  RefreshCw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,6 +62,8 @@ import type { ClaudeStreamMessage } from "./AgentExecution";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTrackEvent, useComponentMetrics, useWorkflowTracking } from "@/hooks";
 import { SessionPersistenceService } from "@/services/sessionPersistence";
+import { FindInSession, buildMatchIndex } from "./FindInSession";
+import type { FindMatch } from "./FindInSession";
 
 interface ClaudeCodeSessionProps {
   /**
@@ -127,6 +130,12 @@ export const ClaudeCodeSession: React.FC<ClaudeCodeSessionProps> = ({
   // Queued prompts state
   const [queuedPrompts, setQueuedPrompts] = useState<Array<{ id: string; prompt: string; model: "sonnet" | "opus" }>>([]);
   
+  // Find-in-session state
+  const [findVisible, setFindVisible] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findMatches, setFindMatches] = useState<FindMatch[]>([]);
+  const [findCurrentIndex, setFindCurrentIndex] = useState(0);
+
   // New state for preview feature
   const [showPreview, setShowPreview] = useState(false);
   const [previewUrl, setPreviewUrl] = useState("");
@@ -266,6 +275,54 @@ export const ClaudeCodeSession: React.FC<ClaudeCodeSessionProps> = ({
     estimateSize: () => 150, // Estimate, will be dynamically measured
     overscan: 5,
   });
+
+  // Find-in-session: Ctrl+F handler
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+        e.preventDefault();
+        setFindVisible(true);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // Find-in-session: build match index when query changes
+  useEffect(() => {
+    const matches = buildMatchIndex(displayableMessages, findQuery);
+    setFindMatches(matches);
+    setFindCurrentIndex(0);
+    // Scroll to first match
+    if (matches.length > 0) {
+      rowVirtualizer.scrollToIndex(matches[0].messageIndex, { align: "center" });
+    }
+  }, [findQuery, displayableMessages]);
+
+  const handleFindClose = React.useCallback(() => {
+    setFindVisible(false);
+    setFindQuery("");
+    setFindMatches([]);
+    setFindCurrentIndex(0);
+  }, []);
+
+  const handleFindNext = React.useCallback(() => {
+    if (findMatches.length === 0) return;
+    const next = (findCurrentIndex + 1) % findMatches.length;
+    setFindCurrentIndex(next);
+    rowVirtualizer.scrollToIndex(findMatches[next].messageIndex, { align: "center" });
+  }, [findMatches, findCurrentIndex, rowVirtualizer]);
+
+  const handleFindPrev = React.useCallback(() => {
+    if (findMatches.length === 0) return;
+    const prev = (findCurrentIndex - 1 + findMatches.length) % findMatches.length;
+    setFindCurrentIndex(prev);
+    rowVirtualizer.scrollToIndex(findMatches[prev].messageIndex, { align: "center" });
+  }, [findMatches, findCurrentIndex, rowVirtualizer]);
+
+  const handleFindNavigate = React.useCallback((messageIndex: number) => {
+    rowVirtualizer.scrollToIndex(messageIndex, { align: "center" });
+  }, [rowVirtualizer]);
 
   // Debug logging
   useEffect(() => {
@@ -1218,6 +1275,9 @@ export const ClaudeCodeSession: React.FC<ClaudeCodeSessionProps> = ({
     };
   }, [effectiveSession, projectPath]);
 
+  // Current find query for highlighting in StreamMessage
+  const findHighlightQuery = findVisible && findQuery.length > 0 ? findQuery : "";
+
   const messagesList = (
     <div
       ref={parentRef}
@@ -1250,10 +1310,11 @@ export const ClaudeCodeSession: React.FC<ClaudeCodeSessionProps> = ({
                   top: virtualItem.start,
                 }}
               >
-                <StreamMessage 
-                  message={message} 
+                <StreamMessage
+                  message={message}
                   streamMessages={messages}
                   onLinkDetected={handleLinkDetected}
+                  highlightQuery={findHighlightQuery}
                 />
               </motion.div>
             );
@@ -1317,6 +1378,19 @@ export const ClaudeCodeSession: React.FC<ClaudeCodeSessionProps> = ({
     <TooltipProvider>
       <div className={cn("flex flex-col h-full bg-background", className)}>
         <div className="w-full h-full flex flex-col">
+
+        {/* Find in session bar */}
+        <FindInSession
+          visible={findVisible}
+          onClose={handleFindClose}
+          messages={displayableMessages}
+          onNavigate={handleFindNavigate}
+          currentMatch={findCurrentIndex}
+          totalMatches={findMatches.length}
+          onQueryChange={setFindQuery}
+          onPrev={handleFindPrev}
+          onNext={handleFindNext}
+        />
 
         {/* Main Content Area */}
         <div className={cn(
@@ -1529,6 +1603,24 @@ export const ClaudeCodeSession: React.FC<ClaudeCodeSessionProps> = ({
               projectPath={projectPath}
               extraMenuItems={
                 <>
+                  {effectiveSession && (
+                    <TooltipSimple content="Refresh session" side="top">
+                      <motion.div
+                        whileTap={{ scale: 0.97 }}
+                        transition={{ duration: 0.15 }}
+                      >
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => loadSessionHistory()}
+                          disabled={isLoading}
+                          className="h-9 w-9 text-muted-foreground hover:text-foreground"
+                        >
+                          <RefreshCw className={cn("h-3.5 w-3.5", isLoading && "animate-spin")} />
+                        </Button>
+                      </motion.div>
+                    </TooltipSimple>
+                  )}
                   {effectiveSession && (
                     <TooltipSimple content="Session Timeline" side="top">
                       <motion.div

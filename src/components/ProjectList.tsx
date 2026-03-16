@@ -12,6 +12,7 @@ import {
   Copy,
   Check,
   Clock,
+  GitFork,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -496,6 +497,12 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                                       <p className="text-body-small font-medium">
                                         Session on {formatResultDate(result)}
                                       </p>
+                                      {result.forked_from && (
+                                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-caption font-medium bg-orange-500/10 text-orange-600 dark:text-orange-400">
+                                          <GitFork className="h-2.5 w-2.5" />
+                                          Fork
+                                        </span>
+                                      )}
                                       <span className="text-caption text-muted-foreground font-mono ml-auto">
                                         {result.id.slice(-8)}
                                       </span>

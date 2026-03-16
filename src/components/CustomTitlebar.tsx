@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Settings, Minus, Square, X, Bot, BarChart3, FileText, Network, Info, MoreVertical } from 'lucide-react';
+import { Settings, Minus, Square, X, Bot, BarChart3, FileText, Network, Info, MoreVertical, RefreshCw } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { TooltipProvider, TooltipSimple } from '@/components/ui/tooltip-modern';
 
@@ -11,6 +11,7 @@ interface CustomTitlebarProps {
   onClaudeClick?: () => void;
   onMCPClick?: () => void;
   onInfoClick?: () => void;
+  onRefresh?: () => Promise<void> | void;
 }
 
 export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
@@ -19,10 +20,12 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
   onUsageClick,
   onClaudeClick,
   onMCPClick,
-  onInfoClick
+  onInfoClick,
+  onRefresh
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -139,6 +142,26 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       <div className="flex items-center pr-5 gap-3 tauri-no-drag">
         {/* Primary actions group */}
         <div className="flex items-center gap-1">
+          {onRefresh && (
+            <TooltipSimple content="Refresh" side="bottom">
+              <motion.button
+                onClick={async () => {
+                  setIsRefreshing(true);
+                  try {
+                    await onRefresh();
+                  } finally {
+                    setIsRefreshing(false);
+                  }
+                }}
+                whileTap={{ scale: 0.97 }}
+                transition={{ duration: 0.15 }}
+                disabled={isRefreshing}
+                className="p-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors tauri-no-drag"
+              >
+                <RefreshCw size={16} className={isRefreshing ? "animate-spin" : ""} />
+              </motion.button>
+            </TooltipSimple>
+          )}
           {onAgentsClick && (
             <TooltipSimple content="Agents" side="bottom">
               <motion.button

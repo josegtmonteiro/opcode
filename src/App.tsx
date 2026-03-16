@@ -386,6 +386,10 @@ function AppContent() {
         onMCPClick={() => createMCPTab()}
         onSettingsClick={() => createSettingsTab()}
         onInfoClick={() => setShowNFO(true)}
+        onRefresh={async () => {
+          await loadProjects();
+          window.dispatchEvent(new CustomEvent('global-refresh'));
+        }}
       />
       
       {/* Topbar - Commented out since navigation moved to titlebar */}

@@ -36,6 +36,11 @@ export interface Project {
 /**
  * Represents a session with its metadata
  */
+export interface ForkInfo {
+  sessionId: string;
+  messageUuid: string;
+}
+
 export interface Session {
   /** The session ID (UUID) */
   id: string;
@@ -51,6 +56,12 @@ export interface Session {
   first_message?: string;
   /** Timestamp of the first user message (if available) */
   message_timestamp?: string;
+  /** Last user message content (if available) */
+  last_message?: string;
+  /** Unix timestamp when the session file was last modified */
+  modified_at?: number;
+  /** Fork relationship: which session this was forked from */
+  forked_from?: ForkInfo;
 }
 
 export interface SessionSearchResult extends Session {

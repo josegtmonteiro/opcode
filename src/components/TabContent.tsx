@@ -45,6 +45,20 @@ const TabPanel: React.FC<TabPanelProps> = ({ tab, isActive }) => {
       loadProjects();
     }
   }, [isActive, tab.type]);
+
+  // Listen for global refresh event
+  useEffect(() => {
+    const handler = () => {
+      loadProjects();
+      if (selectedProject) {
+        api.getProjectSessions(selectedProject.id)
+          .then(setSessions)
+          .catch((err) => console.error("Failed to refresh sessions:", err));
+      }
+    };
+    window.addEventListener('global-refresh', handler);
+    return () => window.removeEventListener('global-refresh', handler);
+  }, [selectedProject]);
   
   const loadProjects = async () => {
     try {

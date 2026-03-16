@@ -46,6 +46,7 @@ interface StreamMessageProps {
   className?: string;
   streamMessages: ClaudeStreamMessage[];
   onLinkDetected?: (url: string) => void;
+  highlightQuery?: string;
 }
 
 /**
@@ -736,4 +737,71 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
   }
 };
 
-export const StreamMessage = React.memo(StreamMessageComponent);
+const HighlightWrapper: React.FC<{ query?: string; children: React.ReactNode }> = ({ query, children }) => {
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    // Remove any existing highlights
+    el.querySelectorAll("mark[data-find-highlight]").forEach((mark) => {
+      const parent = mark.parentNode;
+      if (parent) {
+        parent.replaceChild(document.createTextNode(mark.textContent || ""), mark);
+        parent.normalize();
+      }
+    });
+
+    if (!query || query.length < 1) return;
+
+    const queryLower = query.toLowerCase();
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+    const textNodes: Text[] = [];
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      textNodes.push(node as Text);
+    }
+
+    for (const textNode of textNodes) {
+      const text = textNode.textContent || "";
+      const textLower = text.toLowerCase();
+      const idx = textLower.indexOf(queryLower);
+      if (idx === -1) continue;
+
+      // Split the text node and wrap the match
+      const before = text.slice(0, idx);
+      const match = text.slice(idx, idx + query.length);
+      const after = text.slice(idx + query.length);
+
+      const frag = document.createDocumentFragment();
+      if (before) frag.appendChild(document.createTextNode(before));
+      const mark = document.createElement("mark");
+      mark.setAttribute("data-find-highlight", "true");
+      mark.style.backgroundColor = "rgba(var(--primary-rgb, 234 179 8) / 0.4)";
+      mark.style.color = "inherit";
+      mark.style.borderRadius = "2px";
+      mark.style.padding = "0 1px";
+      mark.textContent = match;
+      frag.appendChild(mark);
+      if (after) frag.appendChild(document.createTextNode(after));
+
+      textNode.parentNode?.replaceChild(frag, textNode);
+    }
+  }, [query]);
+
+  return <div ref={containerRef}>{children}</div>;
+};
+
+const StreamMessageWithHighlight: React.FC<StreamMessageProps> = (props) => {
+  if (props.highlightQuery) {
+    return (
+      <HighlightWrapper query={props.highlightQuery}>
+        <StreamMessageComponent {...props} />
+      </HighlightWrapper>
+    );
+  }
+  return <StreamMessageComponent {...props} />;
+};
+
+export const StreamMessage = React.memo(StreamMessageWithHighlight);
